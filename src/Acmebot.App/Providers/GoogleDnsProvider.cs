@@ -5,21 +5,28 @@ using Acmebot.App.Options;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Dns.v1;
 using Google.Apis.Dns.v1.Data;
-using Google.Apis.Json;
 using Google.Apis.Services;
 
 namespace Acmebot.App.Providers;
 
-public class GoogleDnsProvider(GoogleDnsOptions options) : IDnsProvider
+public class GoogleDnsProvider : IDnsProvider
 {
-    private readonly DnsService _dnsService = new(new BaseClientService.Initializer
+    public GoogleDnsProvider(GoogleDnsOptions options)
     {
-        HttpClientInitializer = CredentialFactory.FromJson<GoogleCredential>(Encoding.UTF8.GetString(Convert.FromBase64String(options.KeyFile64)))
-                                                 .CreateScoped(DnsService.Scope.NdevClouddnsReadwrite)
-    });
+        var serviceAccount = CredentialFactory.FromJson<ServiceAccountCredential>(Encoding.UTF8.GetString(Convert.FromBase64String(options.KeyFile64)));
 
-    private readonly JsonCredentialParameters _credsParameters =
-        NewtonsoftJsonSerializer.Instance.Deserialize<JsonCredentialParameters>(Encoding.UTF8.GetString(Convert.FromBase64String(options.KeyFile64)));
+        _projectId = serviceAccount.ProjectId;
+        _credential = serviceAccount.ToGoogleCredential().CreateScoped(DnsService.Scope.NdevClouddnsReadwrite);
+
+        _dnsService = new DnsService(new BaseClientService.Initializer
+        {
+            HttpClientInitializer = _credential
+        });
+    }
+
+    private readonly string _projectId;
+    private readonly GoogleCredential _credential;
+    private readonly DnsService _dnsService;
 
     public string Name => "Google Cloud DNS";
 
@@ -33,7 +40,7 @@ public class GoogleDnsProvider(GoogleDnsOptions options) : IDnsProvider
 
         do
         {
-            var request = _dnsService.ManagedZones.List(_credsParameters.ProjectId);
+            var request = _dnsService.ManagedZones.List(_projectId);
 
             request.PageToken = response?.NextPageToken;
 
@@ -66,14 +73,14 @@ public class GoogleDnsProvider(GoogleDnsOptions options) : IDnsProvider
             ]
         };
 
-        return _dnsService.Changes.Create(change, _credsParameters.ProjectId, zone.Id).ExecuteAsync(cancellationToken);
+        return _dnsService.Changes.Create(change, _projectId, zone.Id).ExecuteAsync(cancellationToken);
     }
 
     public async Task DeleteTxtRecordAsync(DnsZone zone, string relativeRecordName, CancellationToken cancellationToken = default)
     {
         var recordName = $"{relativeRecordName}.{zone.Name}.";
 
-        var request = _dnsService.ResourceRecordSets.List(_credsParameters.ProjectId, zone.Id);
+        var request = _dnsService.ResourceRecordSets.List(_projectId, zone.Id);
 
         request.Name = recordName;
         request.Type = "TXT";
@@ -87,6 +94,6 @@ public class GoogleDnsProvider(GoogleDnsOptions options) : IDnsProvider
 
         var change = new Change { Deletions = txtRecords.Rrsets };
 
-        await _dnsService.Changes.Create(change, _credsParameters.ProjectId, zone.Id).ExecuteAsync(cancellationToken);
+        await _dnsService.Changes.Create(change, _projectId, zone.Id).ExecuteAsync(cancellationToken);
     }
 }
