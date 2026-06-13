@@ -35,7 +35,7 @@ When App Service Authentication uses a custom Microsoft Entra application ID URI
 acmebot config set --endpoint https://my-acmebot.azurewebsites.net --audience api://<application-client-id>
 ```
 
-Then use short commands:
+Then run commands without repeating endpoint options:
 
 ```bash
 acmebot certificate list
@@ -47,7 +47,7 @@ acmebot certificate revoke wildcard-example-com
 
 ## Authentication
 
-All commands call the Acmebot API with a Microsoft Entra ID bearer token. By default, the CLI uses `DefaultAzureCredential` from Azure Identity, so `az login`, managed identity, Visual Studio, Azure PowerShell, and Azure Identity environment credentials can be used depending on the host environment.
+All commands call the Acmebot API with a Microsoft Entra ID bearer token. By default, the CLI uses `DefaultAzureCredential` from Azure Identity, resolving credentials from `az login`, managed identity, Visual Studio, Azure PowerShell, or Azure Identity environment variables, depending on the host environment.
 
 Set the Acmebot application URL with saved configuration, `ACMEBOT_ENDPOINT`, or `--endpoint`:
 
@@ -191,7 +191,7 @@ Pass only the operation instance ID returned by `certificate issue --no-wait` or
 
 ## Output
 
-Use table output for humans:
+Use table output for interactive use:
 
 ```bash
 acmebot certificate list
