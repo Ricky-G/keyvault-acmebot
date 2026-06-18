@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { AlertTriangle, CalendarClock, CalendarDays, Clock3, Copy, Fingerprint, KeyRound, RotateCw, ShieldCheck, Trash2, X } from 'lucide-vue-next';
+import { AlertTriangle, CalendarDays, Copy, Fingerprint, KeyRound, RotateCw, ShieldCheck, Trash2, X } from 'lucide-vue-next';
 
 import type { CertificateItem, CertificateRenewalItem } from '@/api/types';
 import { displayDnsName, formatDateTime, getCategoryLabel, getCertificateCategory, getValidityDays, isCertificateExpired } from '@/utils/certificates';
+import { renewalIcon, renewalLabel, renewalTone } from '@/utils/renewals';
 
 import StatusBadge from './StatusBadge.vue';
 
@@ -22,43 +23,77 @@ const emit = defineEmits<{
   copy: [label: string, value: string];
 }>();
 
+interface MetadataRow {
+  key: string;
+  label: string;
+  value: string;
+  mono?: boolean;
+  stacked?: boolean;
+}
+
 const customTags = computed(() => Object.entries(props.certificate?.tags ?? {}).toSorted(([left], [right]) => left.localeCompare(right)));
 const customTagsCopyText = computed(() => customTags.value.map(([key, value]) => `${key}: ${value}`).join('\n'));
+const metadataRows = computed<MetadataRow[]>(() => {
+  const certificate = props.certificate;
 
-function getRenewalTone(): string {
-  const kind = props.renewal?.statusKind;
-
-  if (kind === 'scheduled' || kind === 'active' || kind === 'attention' || kind === 'pending') {
-    return kind;
+  if (!certificate) {
+    return [];
   }
 
-  return props.renewalLoading ? 'pending' : 'neutral';
+  const rows: MetadataRow[] = [];
+
+  if (certificate.acmeEndpoint) {
+    rows.push({
+      key: 'acmeEndpoint',
+      label: 'ACME endpoint',
+      value: certificate.acmeEndpoint,
+      mono: true,
+      stacked: true,
+    });
+  }
+
+  if (certificate.isIssuedByAcmebot || certificate.dnsProviderName) {
+    rows.push({
+      key: 'dnsProvider',
+      label: 'DNS provider',
+      value: certificate.dnsProviderName || 'Automatic',
+    });
+  }
+
+  if (certificate.dnsAlias) {
+    rows.push({
+      key: 'dnsAlias',
+      label: 'DNS alias',
+      value: displayDnsName(certificate.dnsAlias),
+      stacked: true,
+    });
+  }
+
+  return rows;
+});
+
+function getReuseKeyLabel(certificate: CertificateItem): string {
+  if (certificate.reuseKey === true) {
+    return 'Enabled';
+  }
+
+  if (certificate.reuseKey === false) {
+    return 'Disabled';
+  }
+
+  return 'Unknown';
+}
+
+function getRenewalTone(): string {
+  return renewalTone(props.renewal ?? null, props.renewalLoading);
 }
 
 function getRenewalLabel(): string {
-  if (!props.renewal) {
-    return props.renewalLoading ? 'Loading' : '-';
-  }
-
-  return props.renewal.status;
+  return renewalLabel(props.renewal ?? null, props.renewalLoading);
 }
 
 function getRenewalIcon() {
-  const tone = getRenewalTone();
-
-  if (tone === 'attention') {
-    return AlertTriangle;
-  }
-
-  if (tone === 'active') {
-    return RotateCw;
-  }
-
-  if (tone === 'scheduled') {
-    return CalendarClock;
-  }
-
-  return Clock3;
+  return renewalIcon(props.renewal ?? null, props.renewalLoading);
 }
 
 function getRenewalMessage(): string {
@@ -171,6 +206,16 @@ function getRenewalMessage(): string {
               <strong>{{ certificate.keyType ?? '-' }} {{ certificate.keySize ? `${certificate.keySize} bit` : certificate.keyCurveName ?? '' }}</strong>
             </div>
           </div>
+          <div class="detail-item">
+            <RotateCw
+              :size="17"
+              aria-hidden="true"
+            />
+            <div>
+              <span>Key reuse</span>
+              <strong>{{ getReuseKeyLabel(certificate) }}</strong>
+            </div>
+          </div>
           <div class="detail-item detail-item--wide">
             <Fingerprint
               :size="17"
@@ -234,65 +279,26 @@ function getRenewalMessage(): string {
           </dl>
         </section>
 
-        <section class="detail-section">
+        <section
+          v-if="metadataRows.length > 0"
+          class="detail-section"
+        >
           <h3>Metadata</h3>
           <dl class="metadata-list">
-            <div class="metadata-row">
-              <dt>Issuer</dt>
-              <dd>
-                <span
-                  class="metadata-chip"
-                  :class="certificate.isIssuedByAcmebot ? 'metadata-chip--success' : 'metadata-chip--neutral'"
-                >
-                  {{ certificate.isIssuedByAcmebot ? 'Acmebot' : 'External' }}
-                </span>
-              </dd>
-            </div>
-            <div class="metadata-row">
-              <dt>Current ACME endpoint</dt>
-              <dd>
-                <span
-                  class="metadata-chip"
-                  :class="certificate.isSameEndpoint ? 'metadata-chip--success' : 'metadata-chip--warning'"
-                >
-                  {{ certificate.isSameEndpoint ? 'Current' : 'Different' }}
-                </span>
-              </dd>
-            </div>
-            <div class="metadata-row">
-              <dt>Reuse key</dt>
-              <dd>
-                <span
-                  class="metadata-chip"
-                  :class="certificate.reuseKey ? 'metadata-chip--success' : 'metadata-chip--neutral'"
-                >
-                  {{ certificate.reuseKey ? 'Enabled' : 'Disabled' }}
-                </span>
-              </dd>
-            </div>
             <div
-              v-if="certificate.dnsProviderName"
+              v-for="row in metadataRows"
+              :key="row.key"
               class="metadata-row"
+              :class="{ 'metadata-row--stacked': row.stacked }"
             >
-              <dt>DNS provider</dt>
-              <dd>{{ certificate.dnsProviderName }}</dd>
-            </div>
-            <div
-              v-if="certificate.dnsAlias"
-              class="metadata-row metadata-row--stacked"
-            >
-              <dt>DNS alias</dt>
+              <dt>{{ row.label }}</dt>
               <dd class="metadata-value-line">
-                <span class="metadata-value">{{ displayDnsName(certificate.dnsAlias ?? '') }}</span>
-              </dd>
-            </div>
-            <div
-              v-if="certificate.acmeEndpoint"
-              class="metadata-row metadata-row--stacked"
-            >
-              <dt>ACME endpoint</dt>
-              <dd class="metadata-value-line">
-                <span class="metadata-value metadata-value--mono">{{ certificate.acmeEndpoint }}</span>
+                <span
+                  class="metadata-value"
+                  :class="{ 'metadata-value--mono': row.mono }"
+                >
+                  {{ row.value }}
+                </span>
               </dd>
             </div>
           </dl>
