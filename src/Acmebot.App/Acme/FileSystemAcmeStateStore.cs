@@ -40,9 +40,38 @@ internal sealed class FileSystemAcmeStateStore(IOptions<AcmebotOptions> options)
             Directory.CreateDirectory(directoryPath);
         }
 
-        await using var stream = File.Create(fullPath);
+        // Write to a temporary file first and atomically replace the target so that a crash or host
+        // recycle mid-write cannot leave a truncated state file (a corrupt account_key.json would
+        // permanently orphan the ACME account).
+        var tempPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
 
-        await JsonSerializer.SerializeAsync(stream, value, s_jsonSerializerOptions, cancellationToken);
+        try
+        {
+            await using (var stream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, s_jsonSerializerOptions, cancellationToken);
+            }
+
+            File.Move(tempPath, fullPath, overwrite: true);
+        }
+        catch
+        {
+            TryDeleteFile(tempPath);
+
+            throw;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        // Best-effort cleanup of the temp file; never let a cleanup failure mask the original error.
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private string ResolveStateFullPath(string path) => Environment.ExpandEnvironmentVariables($"%HOME%/data/.acmebot/{_endpoint.Host}/{path}");
