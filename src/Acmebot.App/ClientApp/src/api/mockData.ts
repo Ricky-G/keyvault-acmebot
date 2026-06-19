@@ -154,7 +154,7 @@ let mockCertificates: CertificateItem[] = [
 const mockDnsZoneGroups: DnsZoneGroup[] = [
   {
     dnsProviderName: 'Azure DNS',
-    dnsZones: [{ name: 'example.com' }, { name: 'example.co.jp' }, { name: 'www.example.co.jp' }, { name: 'example.org' }, { name: 'fabrikam.net' }],
+    dnsZones: [{ name: 'example.com' }, { name: 'acme.example.com' }, { name: 'example.co.jp' }, { name: 'www.example.co.jp' }, { name: 'example.org' }, { name: 'fabrikam.net' }],
   },
   {
     dnsProviderName: 'Cloudflare',
@@ -213,13 +213,12 @@ export async function getMockCertificateRenewals(): Promise<CertificateRenewalIt
 
 export async function mockIssueCertificate(policy: CertificatePolicyItem): Promise<void> {
   await delay(700);
-  const certificateName = policy.certificateName || policy.dnsNames[0].replaceAll('*', 'wildcard').replaceAll('.', '-');
 
   mockCertificates = [
     ...mockCertificates,
     {
-      id: `https://mock.vault/certificates/${certificateName}`,
-      name: certificateName,
+      id: `https://mock.vault/certificates/${policy.certificateName}`,
+      name: policy.certificateName,
       dnsNames: [...policy.dnsNames],
       dnsProviderName: policy.dnsProviderName,
       createdOn: new Date().toISOString(),
