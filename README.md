@@ -4,7 +4,7 @@
 <p align="center">
   ACME SSL/TLS certificate automation for Microsoft Azure, built around DNS-01 validation and Azure Key Vault
   <br>
-  (App Service / Container Apps / Application Gateway / Front Door / others)
+  (App Service / Container Apps / Application Gateway / Front Door / Web PubSub / Event Grid / others)
 </p>
 <p align="center">
   <a href="https://github.com/polymind-inc/acmebot/actions/workflows/build.yml" rel="nofollow"><img src="https://github.com/polymind-inc/acmebot/workflows/Build/badge.svg" alt="Build" style="max-width: 100%;"></a>
@@ -43,11 +43,13 @@ Acmebot is designed for teams that need to:
   - [SSL.com](https://www.ssl.com/how-to/order-free-90-day-ssl-tls-certificates-with-acme/) (Requires EAB Credentials)
   - [ZeroSSL](https://zerossl.com/features/acme/) (Requires EAB Credentials)
 - Certificates can be used with many Azure services
-  - Azure App Service (Web Apps / Functions / Containers)
-  - Azure Container Apps (Include custom DNS suffix)
+  - App Service (Web Apps / Functions / Containers)
+  - Container Apps (Include custom DNS suffix)
   - Front Door (Standard / Premium)
   - Application Gateway v2
   - API Management
+  - Web PubSub (Premium)
+  - Event Grid Namespaces
   - SignalR Service (Premium)
   - Virtual Machine
 
