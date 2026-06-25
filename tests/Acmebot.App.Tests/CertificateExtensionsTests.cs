@@ -1,4 +1,6 @@
-﻿using Acmebot.App.Extensions;
+﻿using System.Text.Json;
+
+using Acmebot.App.Extensions;
 using Acmebot.App.Models;
 
 using Azure.Security.KeyVault.Certificates;
@@ -87,18 +89,11 @@ public sealed class CertificateExtensionsTests
     [Fact]
     public void ToCertificateTags_TrimsCustomTagsAndSkipsReservedAcmebotTag()
     {
-        var policy = new CertificatePolicyItem
+        var policy = CreatePolicy(profile: null);
+        policy.Tags = new Dictionary<string, string>
         {
-            CertificateName = "example-com",
-            DnsNames = ["example.com"],
-            DnsProviderName = "Azure DNS",
-            KeyType = "RSA",
-            KeySize = 2048,
-            Tags = new Dictionary<string, string>
-            {
-                [" environment "] = " production ",
-                ["Acmebot"] = "user supplied"
-            }
+            [" environment "] = " production ",
+            ["Acmebot"] = "user supplied"
         };
 
         var tags = policy.ToCertificateTags(s_endpoint);
@@ -106,6 +101,90 @@ public sealed class CertificateExtensionsTests
         Assert.Equal("production", tags["environment"]);
         Assert.Contains("Acmebot", tags.Keys);
         Assert.DoesNotContain("user supplied", tags.Values);
+    }
+
+    [Fact]
+    public void ToCertificateTags_WithProfile_StoresProfileInMetadata()
+    {
+        var policy = CreatePolicy(profile: " tlsserver ");
+
+        var tags = policy.ToCertificateTags(s_endpoint);
+
+        using var metadata = JsonDocument.Parse(tags["Acmebot"]);
+        Assert.Equal("tlsserver", metadata.RootElement.GetProperty("profile").GetString());
+    }
+
+    [Fact]
+    public void ToCertificateTags_WithoutProfile_OmitsProfileFromMetadata()
+    {
+        var policy = CreatePolicy(profile: null);
+
+        var tags = policy.ToCertificateTags(s_endpoint);
+
+        using var metadata = JsonDocument.Parse(tags["Acmebot"]);
+        Assert.False(metadata.RootElement.TryGetProperty("profile", out _));
+    }
+
+    [Fact]
+    public void ToCertificatePolicyItem_WithProfileMetadata_RestoresProfile()
+    {
+        var tags = CreatePolicy(profile: "tlsserver").ToCertificateTags(s_endpoint);
+        var certificate = CreateCertificate(tags);
+
+        var policy = certificate.ToCertificatePolicyItem();
+
+        Assert.Equal("tlsserver", policy.Profile);
+    }
+
+    [Fact]
+    public void SetCertificateId_PreservesProfileMetadata()
+    {
+        var tags = CreatePolicy(profile: "tlsserver").ToCertificateTags(s_endpoint);
+
+        tags.SetCertificateId("certificate-id");
+
+        using var metadata = JsonDocument.Parse(tags["Acmebot"]);
+        Assert.Equal("tlsserver", metadata.RootElement.GetProperty("profile").GetString());
+        Assert.Equal("certificate-id", metadata.RootElement.GetProperty("certificateId").GetString());
+    }
+
+    private static CertificatePolicyItem CreatePolicy(string? profile)
+    {
+        return new CertificatePolicyItem
+        {
+            CertificateName = "example-com",
+            DnsNames = ["example.com"],
+            DnsProviderName = "Azure DNS",
+            KeyType = "RSA",
+            KeySize = 2048,
+            Profile = profile
+        };
+    }
+
+    private static KeyVaultCertificateWithPolicy CreateCertificate(IDictionary<string, string> tags)
+    {
+        var subjectAlternativeNames = new SubjectAlternativeNames();
+        subjectAlternativeNames.DnsNames.Add("example.com");
+
+        var policy = new CertificatePolicy(WellKnownIssuerNames.Unknown, "CN=example.com", subjectAlternativeNames)
+        {
+            KeyType = CertificateKeyType.Rsa,
+            KeySize = 2048
+        };
+
+        var properties = new CertificateProperties("example-com");
+
+        foreach (var tag in tags)
+        {
+            properties.Tags[tag.Key] = tag.Value;
+        }
+
+        return CertificateModelFactory.KeyVaultCertificateWithPolicy(
+            properties,
+            new Uri("https://vault.example/keys/example-com/version"),
+            new Uri("https://vault.example/secrets/example-com/version"),
+            [],
+            policy);
     }
 
     private static CertificateProperties CreateCertificateProperties(params (string Key, string Value)[] tags)
