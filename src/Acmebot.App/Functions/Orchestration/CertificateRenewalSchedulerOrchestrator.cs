@@ -34,11 +34,31 @@ public partial class CertificateRenewalSchedulerOrchestrator
         {
             SetSchedulerStatus(context, certificateName, "Renewing", null, "Automatic renewal is in progress.");
 
+            CertificatePolicyItem certificatePolicyItem;
+
+            try
+            {
+                certificatePolicyItem = await context.CallGetCertificatePolicyAsync(certificateName);
+            }
+            catch (TaskFailedException ex) when (ex.FailureDetails.IsCausedBy<PreconditionException>())
+            {
+                // The certificate was deleted between evaluation and policy retrieval, so stop the scheduler
+                // immediately instead of entering the retry loop.
+                SetSchedulerStatus(context, certificateName, "Stopped", null, "Certificate was not found.");
+                LogCertificateRenewalSchedulerStopped(logger, certificateName, "Certificate was not found.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Any other policy retrieval failure (e.g. transient Key Vault or network errors) should fall back
+                // to the same retry path as a failed renewal rather than failing the orchestration outright.
+                await ScheduleRenewalRetryAsync(context, certificateName, logger, ex);
+                return;
+            }
+
             try
             {
                 LogCertificateRenewalStarted(logger, certificateName, evaluation.Reason);
-
-                var certificatePolicyItem = await context.CallGetCertificatePolicyAsync(certificateName);
 
                 await context.CallSubOrchestratorAsync(
                     nameof(CertificateIssuanceOrchestrator.IssueCertificate),
@@ -47,14 +67,7 @@ public partial class CertificateRenewalSchedulerOrchestrator
             }
             catch (Exception ex)
             {
-                LogCertificateRenewalFailed(logger, ex, certificateName);
-
-                var nextCheck = context.CurrentUtcDateTime.Add(s_failedRenewalRetryInterval);
-                SetSchedulerStatus(context, certificateName, "Retrying", nextCheck, "Automatic renewal failed. Retrying later.");
-
-                await context.CreateTimer(nextCheck, CancellationToken.None);
-                context.ContinueAsNew(certificateName);
-
+                await ScheduleRenewalRetryAsync(context, certificateName, logger, ex);
                 return;
             }
 
@@ -78,6 +91,17 @@ public partial class CertificateRenewalSchedulerOrchestrator
     {
         HandleFailure = taskFailureDetails => taskFailureDetails.IsCausedBy<RetriableOrchestratorException>()
     };
+
+    private async Task ScheduleRenewalRetryAsync(TaskOrchestrationContext context, string certificateName, ILogger logger, Exception exception)
+    {
+        LogCertificateRenewalFailed(logger, exception, certificateName);
+
+        var nextCheck = context.CurrentUtcDateTime.Add(s_failedRenewalRetryInterval);
+        SetSchedulerStatus(context, certificateName, "Retrying", nextCheck, "Automatic renewal failed. Retrying later.");
+
+        await context.CreateTimer(nextCheck, CancellationToken.None);
+        context.ContinueAsNew(certificateName);
+    }
 
     private static void SetSchedulerStatus(TaskOrchestrationContext context, string certificateName, string state, DateTimeOffset? nextCheck, string reason)
     {
